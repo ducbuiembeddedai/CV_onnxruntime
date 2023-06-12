@@ -152,13 +152,26 @@ std::vector<std::string> GetAvailableProviders();
  * And you can also feed a array of uint16_t elements directly. For example,
  *
  * \code{.unparsed}
- * uint16_t values[] = { 15360, 16384, 16896, 17408, 17664};
+ * constexpr uint16_t values[] = { 15360, 16384, 16896, 17408, 17664};
  * constexpr size_t values_length = sizeof(values) / sizeof(values[0]);
  * std::vector<int64_t> dims = {values_length};  // one dimensional example
  * Ort::MemoryInfo info("Cpu", OrtDeviceAllocator, 0, OrtMemTypeDefault);
  * // Note we are passing bytes count in this api, not number of elements -> sizeof(values)
  * auto float16_tensor = Ort::Value::CreateTensor(info, values, sizeof(values),
- *                                                dims.data(), dims.size(), ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16);
+ *                                                dims.data(), dims.size(), ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT1);
+ * 
+ * // Another example that demonstrates conversion from float to float16
+ * 
+ * constexpr float values[] = {1.f, 2.f, 3.f, 4.f, 5.f};
+ * constexpr size_t values_length = sizeof(values) / sizeof(values[0]);
+ * Ort::Float16_t fp16_values[values_length];
+ * Ort::Float16_t::FloatToFloat16(values, fp16_values, values_length);
+ * 
+ * // Calls a templated overload. The type enum is inferred from the type of fp16_values. 
+ * // Values size is the number of elements.
+ * auto float16_tensor = Ort::Value::CreateTensor<Ort::Float16_t>(info, fp16_values, values_length,
+ *                                                dims.data(), dims.size());
+  * 
  * \endcode
  *
  * Here is another example, a little bit more elaborate. Let's assume that you use your own float16 type and you want to use
@@ -181,12 +194,55 @@ std::vector<std::string> GetAvailableProviders();
  *  \endcode
  */
 struct Float16_t {
-  uint16_t value;
-  constexpr Float16_t() noexcept : value(0) {}
-  constexpr Float16_t(uint16_t v) noexcept : value(v) {}
+  uint16_t value{0};
+
+  Float16_t() = default;
+
+  /// <summary>
+  /// __ctor from a 16-bit representation of a float16 value
+  /// No conversion is done here.
+  /// </summary>
+  /// <param name="v">16-bit representation</param>
+  constexpr explicit Float16_t(uint16_t v) noexcept : value(v) {}
+
+  /// <summary>
+  /// __ctor from float. Float is converted into float16 16-bit representation.
+  /// </summary>
+  /// <param name="v">float value</param>
+  explicit Float16_t(float v);
+
+  /// <summary>
+  /// Implicit conversion to 16-bit representation of a float16 value
+  /// </summary>
   constexpr operator uint16_t() const noexcept { return value; }
+
+  /// <summary>
+  /// Convert Float16_t to float.
+  /// </summary>
+  /// <returns>float value corresponding to this BFloat16_t instance</returns>
+  float ToFloat() const;
+
   constexpr bool operator==(const Float16_t& rhs) const noexcept { return value == rhs.value; };
   constexpr bool operator!=(const Float16_t& rhs) const noexcept { return value != rhs.value; };
+  constexpr bool operator<(const Float16_t& rhs) const noexcept { return value < rhs.value; };
+
+  /// <summary>
+  /// Batch conversion of Float16_t array to float array.
+  /// Exactly num elements will be converted.
+  /// </summary>
+  /// <param name="fl16">a pointer to fp16 array</param>
+  /// <param name="flt">a pre-allocated array of float that must be at lest the size of num</param>
+  /// <param name="num">num of elements to convert</param>
+  static void Float16ToFloat(const Float16_t* fp16, float* flt, size_t num);
+
+  /// <summary>
+  /// Batch conversion of float array to Float16_t array.
+  /// Exactly num elements will be converted.
+  /// </summary>
+  /// <param name="flt">a pointer to a float array</param>
+  /// <param name="fp16">a pre-allocated array of Float16_t that must be at lest the size of num</param>
+  /// <param name="num">num of elements to convert</param>
+  static void FloatToFloat16(const float* flt, Float16_t* fp16, size_t num);
 };
 
 static_assert(sizeof(Float16_t) == sizeof(uint16_t), "Sizes must match");
@@ -200,12 +256,55 @@ static_assert(sizeof(Float16_t) == sizeof(uint16_t), "Sizes must match");
  * See also code examples for Float16_t above.
  */
 struct BFloat16_t {
-  uint16_t value;
-  constexpr BFloat16_t() noexcept : value(0) {}
-  constexpr BFloat16_t(uint16_t v) noexcept : value(v) {}
+  uint16_t value{0};
+
+  BFloat16_t() = default;
+
+  /// <summary>
+  /// __ctor from a uint16_t representation of bfloat16.
+  /// No conversion is done.
+  /// </summary>
+  /// <param name="v">16-bit bfloat16 value</param>
+  constexpr explicit BFloat16_t(uint16_t v) noexcept : value(v) {}
+
+  /// <summary>
+  /// __ctor from float. Float is converted into bfloat16 16-bit representation.
+  /// </summary>
+  /// <param name="v">float value</param>
+  explicit BFloat16_t(float v);
+
+  /// <summary>
+  /// Implicit conversion to uint16_t representation of bfloat16.
+  /// </summary>
   constexpr operator uint16_t() const noexcept { return value; }
+
+  /// <summary>
+  /// Convert BFloat16 to float.
+  /// </summary>
+  /// <returns>float value corresponding to this BFloat16_t instance</returns>
+  float ToFloat() const;
+
   constexpr bool operator==(const BFloat16_t& rhs) const noexcept { return value == rhs.value; };
   constexpr bool operator!=(const BFloat16_t& rhs) const noexcept { return value != rhs.value; };
+  constexpr bool operator<(const BFloat16_t& rhs) const noexcept { return value <= rhs.value; };
+
+  /// <summary>
+  /// Batch conversion of BFloat16_t array to float array. 
+  /// Exactly num elements will be converted.
+  /// </summary>
+  /// <param name="bfl">a pointer to bf16 array</param>
+  /// <param name="flt">a pre-allocated array of float that must be at lest the size of num</param>
+  /// <param name="num">num of elements to convert</param>
+  static void BFloat16ToFloat(const BFloat16_t* bfl, float* flt, size_t num);
+
+  /// <summary>
+  /// Batch conversion of float array to BFloat16_t array.
+  /// Exactly num elements will be converted.
+  /// </summary>
+  /// <param name="flt">a pointer to a float array</param>
+  /// <param name="bfl">a pre-allocated array of BFloat16_t that must be at lest the size of num</param>
+  /// <param name="num">num of elements to convert</param>
+  static void FloatToBFloat16(const float* flt, BFloat16_t* bfl, size_t num);
 };
 
 static_assert(sizeof(BFloat16_t) == sizeof(uint16_t), "Sizes must match");

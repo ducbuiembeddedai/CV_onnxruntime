@@ -7,6 +7,8 @@
 // These are the inline implementations of the C++ header APIs. They're in this separate file as to not clutter
 // the main C++ file with implementation details.
 
+#include <cstring>
+
 namespace Ort {
 
 namespace detail {
@@ -113,6 +115,179 @@ template <>
 struct TypeToTensorType<bool> {
   static constexpr ONNXTensorElementDataType type = ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL;
 };
+
+// the semantics of this enum should match std::endian from C++20
+namespace detail {
+
+enum class endian {
+#if defined(_WIN32)
+  little = 0,
+  big = 1,
+  native = little,
+#elif defined(__GNUC__) || defined(__clang__)
+  little = __ORDER_LITTLE_ENDIAN__,
+  big = __ORDER_BIG_ENDIAN__,
+  native = __BYTE_ORDER__,
+#else
+#error onnxruntime::endian is not implemented in this environment.
+#endif
+};
+
+static_assert(
+    endian::native == endian::little || endian::native == endian::big,
+    "Only little-endian or big-endian native byte orders are supported.");
+
+} // namespace detail
+
+// The following Float16_t conversions are based on the code from
+// Eigen library.
+
+// The conversion routines are Copyright (c) Fabian Giesen, 2016.
+// The original license follows:
+//
+// Copyright (c) Fabian Giesen, 2016
+// All rights reserved.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted.
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+namespace detail {
+union float32_bits {
+  unsigned int u;
+  float f;
+};
+}
+
+inline Float16_t::Float16_t(float v) {
+  detail::float32_bits f;
+  f.f = v;
+
+  constexpr detail::float32_bits f32infty = {255 << 23};
+  constexpr detail::float32_bits f16max = {(127 + 16) << 23};
+  constexpr detail::float32_bits denorm_magic = {((127 - 15) + (23 - 10) + 1) << 23};
+  constexpr unsigned int sign_mask = 0x80000000u;
+  value = static_cast<uint16_t>(0x0u);
+
+  unsigned int sign = f.u & sign_mask;
+  f.u ^= sign;
+
+  // NOTE all the integer compares in this function can be safely
+  // compiled into signed compares since all operands are below
+  // 0x80000000. Important if you want fast straight SSE2 code
+  // (since there's no unsigned PCMPGTD).
+
+  if (f.u >= f16max.u) {                         // result is Inf or NaN (all exponent bits set)
+    value = (f.u > f32infty.u) ? 0x7e00 : 0x7c00;  // NaN->qNaN and Inf->Inf
+  } else {                                       // (De)normalized number or zero
+    if (f.u < (113 << 23)) {                     // resulting FP16 is subnormal or zero
+      // use a magic value to align our 10 mantissa bits at the bottom of
+      // the float. as long as FP addition is round-to-nearest-even this
+      // just works.
+      f.f += denorm_magic.f;
+
+      // and one integer subtract of the bias later, we have our final float!
+      value = static_cast<uint16_t>(f.u - denorm_magic.u);
+    } else {
+      unsigned int mant_odd = (f.u >> 13) & 1;  // resulting mantissa is odd
+
+      // update exponent, rounding bias part 1
+      // Equivalent to `f.u += ((unsigned int)(15 - 127) << 23) + 0xfff`, but
+      // without arithmetic overflow.
+      f.u += 0xc8000fffU;
+      // rounding bias part 2
+      f.u += mant_odd;
+      // take the bits!
+      value = static_cast<uint16_t>(f.u >> 13);
+    }
+  }
+
+  value |= static_cast<uint16_t>(sign >> 16);
+}
+
+inline float Float16_t::ToFloat() const {
+  constexpr detail::float32_bits magic = {113 << 23};
+  constexpr unsigned int shifted_exp = 0x7c00 << 13;  // exponent mask after shift
+  detail::float32_bits o;
+
+  o.u = (value & 0x7fff) << 13;            // exponent/mantissa bits
+  unsigned int exp = shifted_exp & o.u;  // just the exponent
+  o.u += (127 - 15) << 23;               // exponent adjust
+
+  // handle exponent special cases
+  if (exp == shifted_exp) {   // Inf/NaN?
+    o.u += (128 - 16) << 23;  // extra exp adjust
+  } else if (exp == 0) {      // Zero/Denormal?
+    o.u += 1 << 23;           // extra exp adjust
+    o.f -= magic.f;           // renormalize
+  }
+
+  o.u |= (value & 0x8000) << 16;  // sign bit
+  return o.f;
+}
+
+inline void Float16_t::Float16ToFloat(const Float16_t* fp16, float* flt, size_t num) {
+  auto src = fp16;
+  auto d = flt;
+  for (; num != 0; ++src, ++d, --num) {
+    *d = src->ToFloat();
+  }
+}
+
+inline void Float16_t::FloatToFloat16(const float* flt, Float16_t* fp16, size_t num) {
+  auto src = flt;
+  auto d = fp16;
+  for (; num != 0; ++src, ++d, --num) {
+    new (d) Float16_t(*src);
+  }
+}
+
+inline BFloat16_t::BFloat16_t(float v) {
+  if constexpr (detail::endian::native == detail::endian::little) {
+    std::memcpy(&value, reinterpret_cast<char*>(&v) + sizeof(uint16_t), sizeof(uint16_t));
+  } else {
+    std::memcpy(&value, &v, sizeof(uint16_t));
+  }
+}
+
+inline float BFloat16_t::ToFloat() const {
+  float result;
+  char* const first = reinterpret_cast<char*>(&result);
+  char* const second = first + sizeof(uint16_t);
+  if constexpr (detail::endian::native == detail::endian::little) {
+    std::memset(first, 0, sizeof(uint16_t));
+    std::memcpy(second, &value, sizeof(uint16_t));
+  } else {
+    std::memcpy(first, &value, sizeof(uint16_t));
+    std::memset(second, 0, sizeof(uint16_t));
+  }
+  return result;
+}
+
+inline void BFloat16_t::BFloat16ToFloat(const BFloat16_t* bfl, float* flt, size_t num) {
+  auto src = bfl;
+  auto d = flt;
+  for (; num != 0; ++src, ++d, --num) {
+    *d = src->ToFloat();
+  }
+}
+
+inline void BFloat16_t::FloatToBFloat16(const float* flt, BFloat16_t* bfl, size_t num) {
+  auto src = flt;
+  auto d = bfl;
+  for (; num != 0; ++src, ++d, --num) {
+    new (d) BFloat16_t(*src);
+  }
+}
 
 inline MemoryAllocation::MemoryAllocation(OrtAllocator* allocator, void* p, size_t size)
     : allocator_(allocator), p_(p), size_(size) {

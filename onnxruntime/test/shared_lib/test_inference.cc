@@ -1968,46 +1968,76 @@ TEST(CApiTest, create_tensor_with_data_float16) {
   // Example with C++. However, what we are feeding underneath is really
   // a continuous buffer of uint16_t
   // Use 3rd party libraries such as Eigen to convert floats and doubles to float16 types.
-  Ort::Float16_t values[] = {15360, 16384, 16896, 17408, 17664};  // 1.f, 2.f, 3.f, 4.f, 5.f
+  constexpr float values[] = {1.f, 2.f, 3.f, 4.f, 5.f};
   constexpr size_t values_length = sizeof(values) / sizeof(values[0]);
+  constexpr uint16_t expected_values[values_length] = {15360, 16384, 16896, 17408, 17664};
 
-  std::vector<int64_t> dims = {static_cast<int64_t>(values_length)};
+  Ort::Float16_t fp16_values[values_length];
+  Ort::Float16_t::FloatToFloat16(values, fp16_values, values_length);
+  for (int i = 0; i < values_length; ++i) {
+    ASSERT_EQ(expected_values[i], fp16_values[i].value);
+  }
+
+  constexpr int64_t dims = static_cast<int64_t>(values_length);
   Ort::MemoryInfo info("Cpu", OrtDeviceAllocator, 0, OrtMemTypeDefault);
 
-  Ort::Value tensor = Ort::Value::CreateTensor<Ort::Float16_t>(info, values, values_length, dims.data(), dims.size());
+  Ort::Value tensor = Ort::Value::CreateTensor<Ort::Float16_t>(info, fp16_values, values_length, &dims, 1u);
   const auto* new_pointer = tensor.GetTensorData<Ort::Float16_t>();
-  ASSERT_EQ(new_pointer, values);
+  ASSERT_EQ(new_pointer, fp16_values);
   auto type_info = tensor.GetTypeInfo();
   auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
   ASSERT_NE(tensor_info, nullptr);
   ASSERT_EQ(1u, tensor_info.GetDimensionsCount());
   ASSERT_EQ(tensor_info.GetElementType(), ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16);
 
-  Ort::Float16_t value_at_1 = tensor.At<Ort::Float16_t>({1});
-  ASSERT_EQ(values[1], value_at_1);
+  const Ort::Float16_t& value_at_1 = tensor.At<Ort::Float16_t>({1});
+  ASSERT_EQ(expected_values[1], value_at_1);
+
+  float output_values[values_length];
+  Ort::Float16_t::Float16ToFloat(tensor.GetTensorData<Ort::Float16_t>(), output_values, values_length);
+
+    for (int i = 0; i < values_length; ++i) {
+    ASSERT_NEAR(values[i], output_values[i], 1e-3);
+  }
 }
 
 TEST(CApiTest, create_tensor_with_data_bfloat16) {
   // Example with C++. However, what we are feeding underneath is really
   // a continuous buffer of uint16_t
   // Conversion from float to bfloat16 is simple. Strip off half of the bytes from float.
-  Ort::BFloat16_t values[] = {16256, 16384, 16448, 16512, 16544};  // 1.f, 2.f, 3.f, 4.f, 5.f
+  constexpr float values[] = {1.f, 2.f, 3.f, 4.f, 5.f};
   constexpr size_t values_length = sizeof(values) / sizeof(values[0]);
-  std::vector<int64_t> dims = {static_cast<int64_t>(values_length)};
+  constexpr uint16_t expected_values[] = {16256, 16384, 16448, 16512, 16544};  // 1.f, 2.f, 3.f, 4.f, 5.f
+
+  constexpr int64_t dims = static_cast<int64_t>(values_length);
+
+  Ort::BFloat16_t b16_values[values_length];
+  Ort::BFloat16_t::FloatToBFloat16(values, b16_values, values_length);
+  for (int i = 0; i < values_length; ++i) {
+    ASSERT_EQ(expected_values[i] , b16_values[i].value);
+  }
+
 
   Ort::MemoryInfo info("Cpu", OrtDeviceAllocator, 0, OrtMemTypeDefault);
 
-  Ort::Value tensor = Ort::Value::CreateTensor<Ort::BFloat16_t>(info, values, values_length, dims.data(), dims.size());
+  Ort::Value tensor = Ort::Value::CreateTensor<Ort::BFloat16_t>(info, b16_values, values_length, &dims, 1u);
   const auto* new_pointer = tensor.GetTensorData<Ort::BFloat16_t>();
-  ASSERT_EQ(new_pointer, values);
+  ASSERT_EQ(new_pointer, b16_values);
   auto type_info = tensor.GetTypeInfo();
   auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
   ASSERT_NE(tensor_info, nullptr);
   ASSERT_EQ(1u, tensor_info.GetDimensionsCount());
   ASSERT_EQ(tensor_info.GetElementType(), ONNX_TENSOR_ELEMENT_DATA_TYPE_BFLOAT16);
 
-  Ort::BFloat16_t value_at_1 = tensor.At<Ort::BFloat16_t>({1});
-  ASSERT_EQ(values[1], value_at_1);
+  const Ort::BFloat16_t& value_at_1 = tensor.At<Ort::BFloat16_t>({1});
+  ASSERT_EQ(expected_values[1], value_at_1);
+
+  float output_values[values_length];
+  Ort::BFloat16_t::BFloat16ToFloat(tensor.GetTensorData<Ort::BFloat16_t>(), output_values, values_length);
+
+  for (int i = 0; i < values_length; ++i) {
+    ASSERT_NEAR(values[i], output_values[i], 1e-3);
+  }
 }
 
 TEST(CApiTest, access_tensor_data_elements) {
