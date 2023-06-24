@@ -181,7 +181,7 @@ namespace Microsoft.ML.OnnxRuntime
 
         private const ushort OneBits = 0x3C00;
 
-        private const ushort EpsilonBits = 0x0001;
+        private const ushort EpsilonBits = 0x0400;
 
         private const ushort PositiveInfinityBits = 0x7C00;
         private const ushort NegativeInfinityBits = 0xFC00;
@@ -633,7 +633,7 @@ namespace Microsoft.ML.OnnxRuntime
                 if (sig == 0)
                 {
                     // Positive / Negative zero
-                    return BitOpsUtils.UInt32BitsToSingle(sign ? BitOpsUtils.SingleSignMask : 0);
+                    return (sign) ? -0.0f : 0.0f;
                 }
                 (exp, sig) = NormSubnormalF16Sig(sig);
                 exp -= 1;
@@ -785,7 +785,7 @@ namespace Microsoft.ML.OnnxRuntime
         private const ushort MinValueBits = 0xFF7F; // 1b0_11111110_1111111
         private const ushort MaxValueBits = 0x7F7F; // 0b0_11111110_1111111
 
-        private const ushort EpsilonBits = 0x0001;
+        private const ushort EpsilonBits = 0x0080; // the smallest positive normal value
 
         private const ushort PiBits = 0x4049; // 0b0_10000000_1001001
 
@@ -1159,6 +1159,11 @@ namespace Microsoft.ML.OnnxRuntime
         /// <returns><paramref name="value" /> converted to its nearest representable half-precision floating-point value.</returns>
         public static explicit operator BFloat16(float value)
         {
+            if (float.IsNaN(value))
+            {
+                return NaN;
+            }
+
             uint singleBits = BitOpsUtils.SingleToUInt32Bits(value);
             ushort bfloatBits = BitOpsUtils.SingleBitsToBFloat16Bits(singleBits);
 
@@ -1193,11 +1198,11 @@ namespace Microsoft.ML.OnnxRuntime
             if (exp == 0 && sig == 0)
             {
                 // Positive / Negative zero
-                return BitOpsUtils.UInt32BitsToSingle(sign ? BitOpsUtils.SingleSignMask : 0);
+                return (sign) ? -0.0f : 0.0f;
             }
 
             // All subnormal numbers in BFloat16 would be also subnormal in FP32 because they
-            // share the exponent and the fraction is a subset of the FP32 fraction.
+            // share the exponent.
             uint singleBits = BitOpsUtils.BFloat16BitsToSingleBits(value.value);
             return BitOpsUtils.UInt32BitsToSingle(singleBits);
         }

@@ -32,6 +32,22 @@ namespace Microsoft.ML.OnnxRuntime.Tests
                 Float16 v = (Float16)floatValues[i];
                 Assert.Equal(floatValues[i], v.ToFloat());
             }
+
+            var positiveZero = new Float16(0);
+            Assert.False(Float16.IsNegative(positiveZero));
+            float singlePositiveZero = (float)positiveZero;
+            Assert.Equal(+0.0f, singlePositiveZero);
+#if NET6_0_OR_GREATER
+            Assert.False(float.IsNegative(singlePositiveZero));
+#endif
+
+            var negativeZero = new Float16(0x8000);
+            Assert.True(Float16.IsNegative(negativeZero));
+            float singleNegativeZero = (float)negativeZero;
+            Assert.Equal(-0.0f, singleNegativeZero);
+#if NET6_0_OR_GREATER
+            Assert.True(float.IsNegative(singleNegativeZero));
+#endif
         }
 
         [Fact(DisplayName = "TestComparisionOperators")]
@@ -267,6 +283,22 @@ namespace Microsoft.ML.OnnxRuntime.Tests
                 BFloat16 v = (BFloat16)floatValues[i];
                 Assert.Equal(floatValues[i], v.ToFloat());
             }
+
+            var positiveZero = new BFloat16(0);
+            Assert.False(BFloat16.IsNegative(positiveZero));
+            float singlePositiveZero = (float)positiveZero;
+            Assert.Equal(+0.0f, singlePositiveZero);
+#if NET6_0_OR_GREATER
+            Assert.False(float.IsNegative(singlePositiveZero));
+#endif
+
+            var negativeZero = new BFloat16(0x8000);
+            Assert.True(BFloat16.IsNegative(negativeZero));
+            float singleNegativeZero = (float)negativeZero;
+            Assert.Equal(-0.0f, singleNegativeZero);
+#if NET6_0_OR_GREATER
+            Assert.True(float.IsNegative(singleNegativeZero));
+#endif
         }
 
         [Fact(DisplayName = "TestComparisionOperators")]
@@ -407,19 +439,21 @@ namespace Microsoft.ML.OnnxRuntime.Tests
             // 0b0_0000_0000_000_0001
             const ushort minSubnormalBits = 0x0001;
             BFloat16 smallestSubnormal = new BFloat16(minSubnormalBits);
+#if NET6_0_OR_GREATER
             float singleSmallestSubnormal = (float)smallestSubnormal;
+            Assert.True(float.IsSubnormal(singleSmallestSubnormal));
+#endif
             Assert.True(BFloat16.IsSubnormal(smallestSubnormal));
             Assert.False(BFloat16.IsNormal(smallestSubnormal));
 
             const ushort maxSubnormalBits = 0x007F; // 0b0_0000_0000_111_1111;
             BFloat16 largestSubnormal = new BFloat16(maxSubnormalBits);
+#if NET6_0_OR_GREATER
             float singleLargestSubnornal = (float)largestSubnormal;
+            Assert.True(float.IsSubnormal(singleLargestSubnornal));
+#endif
             Assert.True(BFloat16.IsSubnormal(largestSubnormal));
             Assert.False(BFloat16.IsNormal(largestSubnormal));
-
-            // Convert subnormal to float and check that is rounded up and no longer subnormal
-            //float convertedFromSmallestSubnormal = (float)smallestSubnormal;
-            //float convertedFromLargestSubnormal = (float)largestSubnormal;
         }
 
         [Fact(DisplayName = "TestEqual")]

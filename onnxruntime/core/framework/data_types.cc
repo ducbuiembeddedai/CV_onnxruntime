@@ -33,6 +33,14 @@ float MLFloat16::ToFloat() const {
   return math::halfToFloat(val);
 }
 
+const BFloat16 BFloat16::NaN(BFloat16::kPositiveQNaNBits);
+const BFloat16 BFloat16::NegativeNaN(BFloat16::kNegativeQNaNBits);
+const BFloat16 BFloat16::Infinity(BFloat16::kPositiveInfinityBits);
+const BFloat16 BFloat16::NegativeInfinity(BFloat16::kNegativeInfinityBits);
+const BFloat16 BFloat16::Epsilon(BFloat16::kEpsilonBits);
+const BFloat16 BFloat16::MinValue(BFloat16::kMinValueBits);
+const BFloat16 BFloat16::MaxValue(BFloat16::kMaxValueBits);
+
 // Return the MLDataType used for a generic Tensor
 template <>
 MLDataType DataTypeImpl::GetType<Tensor>() {
